@@ -119,6 +119,73 @@ class Operation(object):
         pass
 
 
+class AMDBoost(Operation):
+    """
+    Turn on/off of AMD CPU Boost feature.
+    """
+
+    @staticmethod
+    def available():
+        path = "/sys/devices/system/cpu/cpufreq/boost"
+        is_amd = False
+        try:
+            is_amd = "AMD" in open("/proc/cpuinfo").read()
+        except:
+            is_amd = False
+        return (is_amd and OS_LINUX and os.path.isfile(path))
+
+    def __init__(self, system):
+        super().__init__("AMD CPU Boost", system)
+        self.path = "/sys/devices/system/cpu/cpufreq/boost"
+
+    def show(self):
+        enabled = self.read_boost()
+        if enabled:
+            self.log_state("AMD Boost enabled")
+        else:
+            self.log_state("AMD Boost disabled")
+
+        if enabled:
+            self.advice("Disable AMD CPU Boost to get more reliable "
+                        "CPU frequency")
+
+    def read_boost(self):
+        with open(self.path, "r") as f:
+            return f.read() in "1"
+
+    def write(self, tune):
+        enable = (not tune)
+        current = self.read_boost()
+        if current == enable:
+            return
+        try:
+            with open(self.path, "w") as f:
+                value = "1" if enable else "0"
+                f.write(value)
+        except IOError as exc:
+            # don't log a permission error if the user is root: permission
+            # error as root means that Turbo Boost is disabled in the BIOS
+            if not is_root():
+                self.check_permission_error(exc)
+
+            action = "enable" if enable else "disable"
+            msg = "Failed to %s AMD CPU Boost" % action
+            disabled_in_bios = is_permission_error(exc) and is_root()
+            if disabled_in_bios:
+                msg += " (AMD CPU Boost disabled in the BIOS?)"
+            msg = "%s: failed to write into %s: %s" % (msg, self.path, exc)
+
+            if disabled_in_bios:
+                self.log_action("WARNING: %s" % msg)
+            else:
+                self.error(msg)
+            return
+
+        msg = "%r written into %s" % (content, self.path)
+        action = "enabled" if enable else "disabled"
+        self.log_action("AMD CPU Boost %s: %s" % (action, msg))
+
+
 class TurboBoostMSR(Operation):
     """
     Get/Set Turbo Boost mode of Intel CPUs using /dev/cpu/N/msr.
@@ -952,6 +1019,7 @@ OPERATIONS = [
     TurboBoostMSR,
     IRQAffinity,
     PowerSupply,
+    AMDBoost,
 ]
 
 
